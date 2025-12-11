@@ -1,0 +1,32 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+LAYOUT_TOP_DOWN()
+
+Person(player, "Player", "Places bets and manages funds")
+System_Ext(gameEngine, "Game Engine", "Consumes wallet balance during gameplay")
+System_Ext(psps, "Payment Service Providers", "External PSPs for deposits/withdrawals")
+System_Ext(auth, "OIDC/Identity Provider", "Authenticates player & service accounts")
+System_Boundary(walletPlatform, "Wallet Platform") {
+  System(walletSvc, "Wallet Service", "Balance mgmt, ledger, limits, REST/gRPC APIs")
+  System(transactionSvc, "Transaction Service", "Immutable audit/event store, reporting APIs")
+  System(paymentSvc, "Payment Gateway Interface", "PSP abstraction, webhook handling, rate limiting")
+  SystemDb(walletDb, "wallet_db (PostgreSQL)", "Wallets, ledger entries, FX data")
+  SystemDb(txDb, "transaction_db (PostgreSQL)", "Append-only audit trail & compliance exports")
+  System(kafka, "Kafka/Redpanda", "Event backbone")
+}
+
+Rel(player, auth, "Authenticate via OIDC")
+Rel(player, walletSvc, "Wallet ops (REST)", "HTTPS/JSON via API Gateway")
+Rel(gameEngine, walletSvc, "Balance adjust (gRPC)", "mTLS + service account")
+Rel(walletSvc, walletDb, "CRUD", "JDBC/ACID")
+Rel(walletSvc, kafka, "Publish wallet events", "WalletCredited/Debited")
+Rel(kafka, transactionSvc, "Consume wallet events", "Async")
+Rel(transactionSvc, txDb, "Persist immutable logs", "JDBC")
+Rel(walletSvc, paymentSvc, "Initiate deposits/withdrawals", "REST/JSON + OAuth2 CC")
+Rel(paymentSvc, psps, "Capture/Payout + Webhooks", "HTTPS")
+Rel(psps, paymentSvc, "Webhook callbacks", "HTTPS + signatures")
+Rel(paymentSvc, walletSvc, "PSP status callbacks", "REST + idempotent keys")
+Rel(walletSvc, transactionSvc, "Query audits/reports", "REST")
+Rel(walletSvc, kafka, "Emit observability metrics", "OTel/Prometheus")
+Rel(transactionSvc, kafka, "Emit observability metrics", "OTel/Prometheus")
+@enduml
