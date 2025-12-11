@@ -1,5 +1,8 @@
 package org.elavationlab.service;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.elavationlab.domain.Transaction;
 import org.elavationlab.domain.Wallet;
 import org.elavationlab.dto.MultiCurrencyBalanceResponse;
@@ -34,170 +37,239 @@ public class WalletService {
 
     private final WalletRepository walletRepository;
     private final TransactionRepository transactionRepository;
+    private final MeterRegistry meterRegistry;
+    private Counter depositCounter;
+    private Counter withdrawalCounter;
+    private Counter betCounter;
+    private Counter winCounter;
+    private Counter balanceUpdateCounter;
+    private Counter errorCounter;
+    private Timer transactionTimer;
 
-    public WalletService(WalletRepository walletRepository, TransactionRepository transactionRepository) {
+    public WalletService(WalletRepository walletRepository, TransactionRepository transactionRepository, MeterRegistry meterRegistry) {
         this.walletRepository = walletRepository;
         this.transactionRepository = transactionRepository;
+        this.meterRegistry = meterRegistry;
+        this.depositCounter = Counter.builder("wallet.transactions.total").tag("type", "deposit").register(meterRegistry);
+        this.withdrawalCounter = Counter.builder("wallet.transactions.total").tag("type", "withdrawal").register(meterRegistry);
+        this.betCounter = Counter.builder("wallet.transactions.total").tag("type", "bet").register(meterRegistry);
+        this.winCounter = Counter.builder("wallet.transactions.total").tag("type", "win").register(meterRegistry);
+        this.balanceUpdateCounter = Counter.builder("wallet.balance.updates.total").register(meterRegistry);
+        this.errorCounter = Counter.builder("wallet.errors.total").register(meterRegistry);
+        this.transactionTimer = Timer.builder("wallet.transactions.duration").register(meterRegistry);
     }
 
     @Transactional
     public WalletBalanceResponse processDeposit(Integer playerId, BigDecimal amount, String currency) {
-        validateAmount(amount);
-        validateCurrency(currency);
-        
-        if (amount.compareTo(MAX_DEPOSIT) > 0) {
-            throw new InvalidAmountException("Exceeds deposit limit of " + MAX_DEPOSIT);
-        }
+        return transactionTimer.record(() -> {
+            try {
+                validateAmount(amount);
+                validateCurrency(currency);
+                
+                if (amount.compareTo(MAX_DEPOSIT) > 0) {
+                    throw new InvalidAmountException("Exceeds deposit limit of " + MAX_DEPOSIT);
+                }
 
-        Wallet wallet = walletRepository.findByPlayerIdAndCurrency(playerId, currency)
-                .orElse(Wallet.builder()
-                        .playerId(playerId)
-                        .currency(currency)
-                        .balance(BigDecimal.ZERO)
-                        .bonusBalance(BigDecimal.ZERO)
-                        .build());
+                Wallet wallet = walletRepository.findByPlayerIdAndCurrency(playerId, currency)
+                        .orElse(Wallet.builder()
+                                .playerId(playerId)
+                                .currency(currency)
+                                .balance(BigDecimal.ZERO)
+                                .bonusBalance(BigDecimal.ZERO)
+                                .build());
 
-        BigDecimal balanceBefore = wallet.getBalance();
-        wallet.setBalance(wallet.getBalance().add(amount));
-        Wallet savedWallet = walletRepository.save(wallet);
+                BigDecimal balanceBefore = wallet.getBalance();
+                wallet.setBalance(wallet.getBalance().add(amount));
+                Wallet savedWallet = walletRepository.save(wallet);
+                balanceUpdateCounter.increment();
 
-        createTransaction(playerId, Transaction.TransactionType.DEPOSIT, amount, currency,
-                balanceBefore, savedWallet.getBalance(), "Deposit via payment gateway");
+                createTransaction(playerId, Transaction.TransactionType.DEPOSIT, amount, currency,
+                        balanceBefore, savedWallet.getBalance(), "Deposit via payment gateway");
+                depositCounter.increment();
 
-        return mapToResponse(savedWallet);
+                return mapToResponse(savedWallet);
+            } catch (Exception e) {
+                errorCounter.increment();
+                throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
+            }
+        });
     }
 
     @Transactional
     public WalletBalanceResponse processWithdrawal(Integer playerId, BigDecimal amount, String currency) {
-        validateAmount(amount);
-        
-        if (amount.compareTo(MAX_WITHDRAWAL) > 0) {
-            throw new InvalidAmountException("Exceeds withdrawal limit of " + MAX_WITHDRAWAL);
-        }
+        return transactionTimer.record(() -> {
+            try {
+                validateAmount(amount);
+                
+                if (amount.compareTo(MAX_WITHDRAWAL) > 0) {
+                    throw new InvalidAmountException("Exceeds withdrawal limit of " + MAX_WITHDRAWAL);
+                }
 
-        Wallet wallet = walletRepository.findByPlayerIdAndCurrency(playerId, currency)
-                .orElseThrow(() -> new WalletNotFoundException("Wallet not found for player " + playerId + " and currency " + currency));
+                Wallet wallet = walletRepository.findByPlayerIdAndCurrency(playerId, currency)
+                        .orElseThrow(() -> new WalletNotFoundException("Wallet not found for player " + playerId + " and currency " + currency));
 
-        if (wallet.getBalance().compareTo(amount) < 0) {
-            throw new InsufficientFundsException("Insufficient funds. Current balance: " + wallet.getBalance());
-        }
+                if (wallet.getBalance().compareTo(amount) < 0) {
+                    throw new InsufficientFundsException("Insufficient funds. Current balance: " + wallet.getBalance());
+                }
 
-        BigDecimal balanceBefore = wallet.getBalance();
-        wallet.setBalance(wallet.getBalance().subtract(amount));
-        Wallet savedWallet = walletRepository.save(wallet);
+                BigDecimal balanceBefore = wallet.getBalance();
+                wallet.setBalance(wallet.getBalance().subtract(amount));
+                Wallet savedWallet = walletRepository.save(wallet);
+                balanceUpdateCounter.increment();
 
-        createTransaction(playerId, Transaction.TransactionType.WITHDRAWAL, amount, currency,
-                balanceBefore, savedWallet.getBalance(), "Withdrawal requested");
+                createTransaction(playerId, Transaction.TransactionType.WITHDRAWAL, amount, currency,
+                        balanceBefore, savedWallet.getBalance(), "Withdrawal requested");
+                withdrawalCounter.increment();
 
-        return mapToResponse(savedWallet);
+                return mapToResponse(savedWallet);
+            } catch (Exception e) {
+                errorCounter.increment();
+                throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
+            }
+        });
     }
 
     @Transactional
     public void processBet(Integer playerId, BigDecimal amount, String currency, String gameId) {
-        validateAmount(amount);
+        transactionTimer.record(() -> {
+            try {
+                validateAmount(amount);
 
-        Wallet wallet = walletRepository.findByPlayerIdAndCurrency(playerId, currency)
-                .orElseThrow(() -> new WalletNotFoundException("Wallet not found for player " + playerId + " and currency " + currency));
+                Wallet wallet = walletRepository.findByPlayerIdAndCurrency(playerId, currency)
+                        .orElseThrow(() -> new WalletNotFoundException("Wallet not found for player " + playerId + " and currency " + currency));
 
-        BigDecimal totalAvailable = wallet.getBalance().add(wallet.getBonusBalance());
-        if (totalAvailable.compareTo(amount) < 0) {
-            throw new InsufficientFundsException("Insufficient funds. Available: " + totalAvailable);
-        }
+                BigDecimal totalAvailable = wallet.getBalance().add(wallet.getBonusBalance());
+                if (totalAvailable.compareTo(amount) < 0) {
+                    throw new InsufficientFundsException("Insufficient funds. Available: " + totalAvailable);
+                }
 
-        BigDecimal balanceBefore = wallet.getBalance();
-        BigDecimal remainingAmount = amount;
+                BigDecimal balanceBefore = wallet.getBalance();
+                BigDecimal remainingAmount = amount;
 
-        // Deduct from bonus first, then from balance
-        if (wallet.getBonusBalance().compareTo(BigDecimal.ZERO) > 0) {
-            if (wallet.getBonusBalance().compareTo(remainingAmount) >= 0) {
-                wallet.setBonusBalance(wallet.getBonusBalance().subtract(remainingAmount));
-                remainingAmount = BigDecimal.ZERO;
-            } else {
-                remainingAmount = remainingAmount.subtract(wallet.getBonusBalance());
-                wallet.setBonusBalance(BigDecimal.ZERO);
+                // Deduct from bonus first, then from balance
+                if (wallet.getBonusBalance().compareTo(BigDecimal.ZERO) > 0) {
+                    if (wallet.getBonusBalance().compareTo(remainingAmount) >= 0) {
+                        wallet.setBonusBalance(wallet.getBonusBalance().subtract(remainingAmount));
+                        remainingAmount = BigDecimal.ZERO;
+                    } else {
+                        remainingAmount = remainingAmount.subtract(wallet.getBonusBalance());
+                        wallet.setBonusBalance(BigDecimal.ZERO);
+                    }
+                }
+
+                if (remainingAmount.compareTo(BigDecimal.ZERO) > 0) {
+                    wallet.setBalance(wallet.getBalance().subtract(remainingAmount));
+                }
+
+                Wallet savedWallet = walletRepository.save(wallet);
+                balanceUpdateCounter.increment();
+
+                createTransaction(playerId, Transaction.TransactionType.BET, amount, currency,
+                        balanceBefore, savedWallet.getBalance(), "Bet on game " + gameId);
+                betCounter.increment();
+            } catch (Exception e) {
+                errorCounter.increment();
+                throw e;
             }
-        }
-
-        if (remainingAmount.compareTo(BigDecimal.ZERO) > 0) {
-            wallet.setBalance(wallet.getBalance().subtract(remainingAmount));
-        }
-
-        Wallet savedWallet = walletRepository.save(wallet);
-
-        createTransaction(playerId, Transaction.TransactionType.BET, amount, currency,
-                balanceBefore, savedWallet.getBalance(), "Bet on game " + gameId);
+        });
     }
 
     @Transactional
     public WalletBalanceResponse processWin(Integer playerId, BigDecimal amount, String currency, String gameId) {
-        validateAmount(amount);
+        return transactionTimer.record(() -> {
+            try {
+                validateAmount(amount);
 
-        Wallet wallet = walletRepository.findByPlayerIdAndCurrency(playerId, currency)
-                .orElseThrow(() -> new WalletNotFoundException("Wallet not found for player " + playerId + " and currency " + currency));
+                Wallet wallet = walletRepository.findByPlayerIdAndCurrency(playerId, currency)
+                        .orElseThrow(() -> new WalletNotFoundException("Wallet not found for player " + playerId + " and currency " + currency));
 
-        BigDecimal balanceBefore = wallet.getBalance();
-        wallet.setBalance(wallet.getBalance().add(amount));
-        Wallet savedWallet = walletRepository.save(wallet);
+                BigDecimal balanceBefore = wallet.getBalance();
+                wallet.setBalance(wallet.getBalance().add(amount));
+                Wallet savedWallet = walletRepository.save(wallet);
+                balanceUpdateCounter.increment();
 
-        createTransaction(playerId, Transaction.TransactionType.WIN, amount, currency,
-                balanceBefore, savedWallet.getBalance(), "Win from game " + gameId);
+                createTransaction(playerId, Transaction.TransactionType.WIN, amount, currency,
+                        balanceBefore, savedWallet.getBalance(), "Win from game " + gameId);
+                winCounter.increment();
 
-        return mapToResponse(savedWallet);
+                return mapToResponse(savedWallet);
+            } catch (Exception e) {
+                errorCounter.increment();
+                throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
+            }
+        });
     }
 
     @Transactional
     public WalletBalanceResponse addBonusBalance(Integer playerId, BigDecimal amount, String currency, String bonusCode) {
-        validateAmount(amount);
+        return transactionTimer.record(() -> {
+            try {
+                validateAmount(amount);
 
-        Wallet wallet = walletRepository.findByPlayerIdAndCurrency(playerId, currency)
-                .orElseThrow(() -> new WalletNotFoundException("Wallet not found for player " + playerId + " and currency " + currency));
+                Wallet wallet = walletRepository.findByPlayerIdAndCurrency(playerId, currency)
+                        .orElseThrow(() -> new WalletNotFoundException("Wallet not found for player " + playerId + " and currency " + currency));
 
-        wallet.setBonusBalance(wallet.getBonusBalance().add(amount));
-        Wallet savedWallet = walletRepository.save(wallet);
+                wallet.setBonusBalance(wallet.getBonusBalance().add(amount));
+                Wallet savedWallet = walletRepository.save(wallet);
+                balanceUpdateCounter.increment();
 
-        createTransaction(playerId, Transaction.TransactionType.BONUS, amount, currency,
-                null, null, "Bonus credited: " + bonusCode);
+                createTransaction(playerId, Transaction.TransactionType.BONUS, amount, currency,
+                        null, null, "Bonus credited: " + bonusCode);
 
-        return mapToResponse(savedWallet);
+                return mapToResponse(savedWallet);
+            } catch (Exception e) {
+                errorCounter.increment();
+                throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
+            }
+        });
     }
 
     @Transactional
     public WalletBalanceResponse convertCurrency(Integer playerId, String fromCurrency, String toCurrency, BigDecimal amount) {
-        validateAmount(amount);
-        validateCurrency(fromCurrency);
-        validateCurrency(toCurrency);
+        return transactionTimer.record(() -> {
+            try {
+                validateAmount(amount);
+                validateCurrency(fromCurrency);
+                validateCurrency(toCurrency);
 
-        Wallet sourceWallet = walletRepository.findByPlayerIdAndCurrency(playerId, fromCurrency)
-                .orElseThrow(() -> new WalletNotFoundException("Source wallet not found for player " + playerId + " and currency " + fromCurrency));
+                Wallet sourceWallet = walletRepository.findByPlayerIdAndCurrency(playerId, fromCurrency)
+                        .orElseThrow(() -> new WalletNotFoundException("Source wallet not found for player " + playerId + " and currency " + fromCurrency));
 
-        if (sourceWallet.getBalance().compareTo(amount) < 0) {
-            throw new InsufficientFundsException("Insufficient funds in " + fromCurrency + " wallet");
-        }
+                if (sourceWallet.getBalance().compareTo(amount) < 0) {
+                    throw new InsufficientFundsException("Insufficient funds in " + fromCurrency + " wallet");
+                }
 
-        BigDecimal fromRate = EXCHANGE_RATES.get(fromCurrency);
-        BigDecimal toRate = EXCHANGE_RATES.get(toCurrency);
-        BigDecimal convertedAmount = amount.divide(fromRate, 10, RoundingMode.HALF_UP)
-                .multiply(toRate)
-                .setScale(2, RoundingMode.HALF_UP);
+                BigDecimal fromRate = EXCHANGE_RATES.get(fromCurrency);
+                BigDecimal toRate = EXCHANGE_RATES.get(toCurrency);
+                BigDecimal convertedAmount = amount.divide(fromRate, 10, RoundingMode.HALF_UP)
+                        .multiply(toRate)
+                        .setScale(2, RoundingMode.HALF_UP);
 
-        sourceWallet.setBalance(sourceWallet.getBalance().subtract(amount));
-        walletRepository.save(sourceWallet);
+                sourceWallet.setBalance(sourceWallet.getBalance().subtract(amount));
+                walletRepository.save(sourceWallet);
+                balanceUpdateCounter.increment();
 
-        Wallet targetWallet = walletRepository.findByPlayerIdAndCurrency(playerId, toCurrency)
-                .orElse(Wallet.builder()
-                        .playerId(playerId)
-                        .currency(toCurrency)
-                        .balance(BigDecimal.ZERO)
-                        .bonusBalance(BigDecimal.ZERO)
-                        .build());
+                Wallet targetWallet = walletRepository.findByPlayerIdAndCurrency(playerId, toCurrency)
+                        .orElse(Wallet.builder()
+                                .playerId(playerId)
+                                .currency(toCurrency)
+                                .balance(BigDecimal.ZERO)
+                                .bonusBalance(BigDecimal.ZERO)
+                                .build());
 
-        targetWallet.setBalance(targetWallet.getBalance().add(convertedAmount));
-        walletRepository.save(targetWallet);
+                targetWallet.setBalance(targetWallet.getBalance().add(convertedAmount));
+                walletRepository.save(targetWallet);
+                balanceUpdateCounter.increment();
 
-        createTransaction(playerId, Transaction.TransactionType.CONVERSION, amount, fromCurrency,
-                null, null, "Converted to " + convertedAmount + " " + toCurrency);
+                createTransaction(playerId, Transaction.TransactionType.CONVERSION, amount, fromCurrency,
+                        null, null, "Converted to " + convertedAmount + " " + toCurrency);
 
-        return mapToResponse(targetWallet);
+                return mapToResponse(targetWallet);
+            } catch (Exception e) {
+                errorCounter.increment();
+                throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
+            }
+        });
     }
 
     public WalletBalanceResponse getBalance(Integer playerId, String currency) {

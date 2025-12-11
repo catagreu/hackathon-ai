@@ -1,5 +1,7 @@
 package org.elavationlab.service;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.elavationlab.domain.Transaction;
 import org.elavationlab.domain.Wallet;
 import org.elavationlab.dto.WalletBalanceResponse;
@@ -33,7 +35,8 @@ class WalletServiceTest {
     @Mock
     private TransactionRepository transactionRepository;
 
-    @InjectMocks
+    private MeterRegistry meterRegistry;
+
     private WalletService walletService;
 
     private static final Integer PLAYER_ID = 1001;
@@ -41,7 +44,8 @@ class WalletServiceTest {
 
     @BeforeEach
     void setUp() {
-        walletService = new WalletService(walletRepository, transactionRepository);
+        meterRegistry = new SimpleMeterRegistry();
+        walletService = new WalletService(walletRepository, transactionRepository, meterRegistry);
     }
 
     @Test
