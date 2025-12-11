@@ -37,6 +37,10 @@ Once started, access:
 - **Web UI:** http://localhost:8080/
 - **API:** http://localhost:8080/api/
 - **Health Check:** http://localhost:8080/actuator/health
+- **Prometheus:** http://localhost:9090
+- **Grafana:** http://localhost:3000
+  - **Username:** `admin`
+  - **Password:** `admin`
 
 ## Docker Services
 
@@ -54,6 +58,22 @@ Once started, access:
 - **Image:** Built from Dockerfile
 - **Depends on:** PostgreSQL
 
+### Prometheus
+- **Container:** `wallet-prometheus`
+- **Port:** 9090
+- **Image:** prom/prometheus:latest
+- **Depends on:** wallet-manager
+- **Metrics Endpoint:** Scrapes from http://wallet-manager:8080/actuator/prometheus
+
+### Grafana
+- **Container:** `wallet-grafana`
+- **Port:** 3000
+- **Image:** grafana/grafana:latest
+- **Default Username:** admin
+- **Default Password:** admin
+- **Depends on:** Prometheus
+- **Auto-provisioned:** Prometheus data source and dashboard are automatically configured
+
 ## Useful Commands
 
 ### View Logs
@@ -66,6 +86,12 @@ docker-compose logs -f wallet-manager
 
 # Just PostgreSQL
 docker-compose logs -f postgres
+
+# Just Prometheus
+docker-compose logs -f prometheus
+
+# Just Grafana
+docker-compose logs -f grafana
 ```
 
 ### Stop Services
@@ -166,7 +192,41 @@ For production, consider:
 3. **Add resource limits** to containers
 4. **Use a reverse proxy** (nginx) in front
 5. **Set up proper logging** (ELK stack, etc.)
-6. **Add monitoring** (Prometheus, Grafana)
+6. **Add monitoring** (Prometheus, Grafana) ✅ Already included
 7. **Use health checks** (already included)
 8. **Set up backup strategy** for PostgreSQL volumes
+
+## Monitoring Stack
+
+### Prometheus
+Prometheus automatically scrapes metrics from the wallet-manager application every 15 seconds.
+
+**Access:** http://localhost:9090
+
+**Metrics Available:**
+- `wallet_transactions_total` - Total transaction count (tagged by type: deposit, withdrawal, bet, win)
+- `wallet_balance_updates_total` - Total balance update operations
+- `wallet_errors_total` - Total error count
+- `wallet_transactions_duration_seconds` - Transaction processing duration
+
+### Grafana
+Grafana is pre-configured with:
+- **Prometheus data source** (automatically configured)
+- **Wallet Manager Dashboard** (pre-loaded with visualizations)
+
+**Access:** http://localhost:3000
+
+**Login Credentials:**
+- Username: `admin`
+- Password: `admin`
+
+**Dashboard Features:**
+- Transaction rate graph
+- Total transactions counter
+- Balance updates counter
+- Error rate monitoring
+- Transaction duration percentiles
+- Transactions by type pie chart
+
+After logging in, navigate to **Dashboards** → **Wallet Manager Metrics** to view the pre-configured dashboard.
 
