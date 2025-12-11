@@ -162,6 +162,163 @@ Design the microservices architecture:
 3. Database schema design
 4. API contracts between services
 
+### Phase 2 Deliverables
+
+#### 1. Architecture Overview (C4-style)
+- **Context:** Players access the Wallet Service via the gaming platform. The Wallet Service coordinates with the Payment Gateway Interface for deposits/withdrawals and emits immutable events to the Transaction Service for auditing. Supporting components include authentication/authorization service (OIDC), currency/exchange service, and observability stack (Prometheus/Grafana).
+- **Containers/Responsibilities:**
+  - **Wallet Service (Spring Boot, Kotlin):** Player wallet APIs, balance projections, ledger validation, idempotency, ACID persistence in `wallet_db`. Publishes domain events to Kafka/Redpanda topic `wallet.events`.
+  - **Transaction Service (Spring Boot, Kotlin):** Consumes wallet events and writes immutable audit logs, exposes reporting/search APIs backed by `transaction_db` (append-only). Provides reconciliation and compliance exports.
+  - **Payment Gateway Interface (Micronaut or lightweight Java service):** Normalizes requests/responses from external PSPs, handles webhook verification, translates to Wallet Service API contracts, and enforces rate limiting + retry policies.
+  - **Shared Infrastructure:** Kafka (event backbone), API Gateway (ingress + auth), Prometheus + Grafana for metrics, OpenTelemetry collector for traces.
+
+```mermaid
+graph TD
+    Player((Player Portal))
+    GameEngine((Game Engine))
+    APIGW[API Gateway / OIDC]
+    Wallet[Wallet Service<br>Balance + Limits]
+    Payment[Payment Gateway Interface<br>PSP connectors]
+    Transaction[Transaction Service<br>Audit/Event Store]
+    Kafka[(Kafka / Redpanda Topic)]
+    WalletDB[(wallet_db - PostgreSQL)]
+    TxDB[(transaction_db - PostgreSQL)]
+    PSPs[[External PSPs]]
+    Observability[(Prometheus/Grafana)]
+
+    Player --> APIGW --> Wallet
+    GameEngine --> APIGW
+    Wallet -->|REST/gRPC| Payment
+    Payment -->|REST/Webhooks| PSPs
+    Wallet --> WalletDB
+    Wallet -->|Publish events| Kafka --> Transaction
+    Transaction --> TxDB
+    Wallet --> Observability
+    Transaction --> Observability
+```
+*PlantUML source: `diagrams/phase2-architecture.puml`*
+![Architecture Diagram](diagrams/phase2-architecture.png)
+
+#### 2. Service Interaction Diagrams
+Sequence diagrams focus on deposit and withdrawal flows. Wallet Service enforces idempotency, Payment Gateway Interface handles PSP quirks, and Transaction Service ensures auditability.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant PlayerApp
+    participant APIGateway
+    participant WalletService
+    participant PaymentInterface
+    participant PSP
+    participant Kafka
+    participant TransactionService
+
+    PlayerApp->>APIGateway: POST /wallets/{id}/deposit
+    APIGateway->>WalletService: Authenticated deposit request
+    WalletService->>PaymentInterface: Initiate PSP charge (idempotency key)
+    PaymentInterface->>PSP: Capture funds
+    PSP-->>PaymentInterface: success + settlement ref
+    PaymentInterface-->>WalletService: PSP receipt
+    WalletService->>WalletService: Update balance (ACID txn)
+    WalletService->>Kafka: Publish WalletCredited event
+    Kafka-->>TransactionService: WalletCredited
+    TransactionService->>TransactionService: Persist immutable log
+    WalletService-->>APIGateway: Deposit response
+    APIGateway-->>PlayerApp: 202 Accepted (balance projection)
+```
+*PlantUML source: `diagrams/sequence-deposit.puml`*
+![Deposit Flow](diagrams/sequence-deposit.png)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant PlayerApp
+    participant APIGateway
+    participant WalletService
+    participant PaymentInterface
+    participant PSP
+    participant Kafka
+    participant TransactionService
+
+    PlayerApp->>APIGateway: POST /wallets/{id}/withdraw
+    APIGateway->>WalletService: Withdrawal intent
+    WalletService->>WalletService: Validate balance & limits
+    WalletService->>Kafka: Publish WalletDebitedPending event
+    Kafka-->>TransactionService: WalletDebitedPending
+    WalletService->>PaymentInterface: Request payout
+    PaymentInterface->>PSP: Initiate payout
+    PSP-->>PaymentInterface: payout confirmation/failure
+    PaymentInterface-->>WalletService: PSP status
+    WalletService->>WalletService: Commit or rollback ledger entry
+    WalletService->>Kafka: WalletDebitedCommitted or WalletDebitRejected
+    Kafka-->>TransactionService: Final event for audit
+    WalletService-->>APIGateway: Response with final status
+    APIGateway-->>PlayerApp: Final outcome + updated balance
+```
+*PlantUML source: `diagrams/sequence-withdrawal.puml`*
+![Withdrawal Flow](diagrams/sequence-withdrawal.png)
+
+#### 3. Database Schema Design
+- **wallet_db (PostgreSQL, strong consistency):**
+  - `players` (player_id PK, status, KYC flags, created_at)
+  - `wallets` (wallet_id PK, player_id FK, currency, total_balance, available_balance, bonus_balance, version, created_at, updated_at)
+  - `ledger_entries` (entry_id PK, wallet_id FK, type {DEPOSIT, WITHDRAWAL, BET, WIN}, amount, currency, correlation_id, status {PENDING, COMMITTED, REVERSED}, metadata JSONB, created_at)
+  - `idempotency_keys` (key PK, wallet_id FK, request_hash, expires_at)
+  - `exchange_rates` (currency_pair PK, rate, source, collected_at)
+- **transaction_db (PostgreSQL or time-series extension):**
+  - `transactions` (tx_id PK, wallet_id, player_id, event_type, amount, currency, raw_payload JSONB, event_time, ingestion_time)
+  - `compliance_exports` (export_id PK, date_range, file_uri, generated_at)
+
+Example schema excerpt (Flyway `V1__wallet_schema.sql`):
+
+```sql
+CREATE TABLE wallets (
+    wallet_id UUID PRIMARY KEY,
+    player_id UUID NOT NULL,
+    currency CHAR(3) NOT NULL,
+    total_balance NUMERIC(18,4) NOT NULL DEFAULT 0,
+    available_balance NUMERIC(18,4) NOT NULL DEFAULT 0,
+    bonus_balance NUMERIC(18,4) NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (player_id, currency)
+);
+
+CREATE TABLE ledger_entries (
+    entry_id UUID PRIMARY KEY,
+    wallet_id UUID NOT NULL REFERENCES wallets(wallet_id),
+    entry_type VARCHAR(32) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    amount NUMERIC(18,4) NOT NULL,
+    currency CHAR(3) NOT NULL,
+    correlation_id UUID NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+#### 4. API Contracts
+- **Wallet Service**
+  - `POST /api/v1/wallets` – create wallet; body: `playerId`, `currency`, optional limits.
+  - `GET /api/v1/wallets/{walletId}` – current and projected balances.
+  - `POST /api/v1/wallets/{walletId}/deposit` – idempotent deposit; headers include `Idempotency-Key`; response returns ledger entry + PSP correlation id.
+  - `POST /api/v1/wallets/{walletId}/withdraw` – initiates withdrawal with AML/KYC checks; returns async job id.
+  - `GET /api/v1/wallets/{walletId}/ledger?from=&to=` – paginated ledger entries.
+  - Internal gRPC: `AdjustBalance` (used by game engine) validated via service account.
+- **Payment Gateway Interface**
+  - `POST /internal/v1/payments/deposits` – invoked by Wallet Service; payload includes `walletId`, `player`, `amount`, `currency`, `psp`, `idempotencyKey`.
+  - `POST /webhooks/{psp}` – receives PSP events, verifies signatures, forwards to Wallet Service via event message.
+  - `GET /psp-status/{id}` – diagnostic endpoint for operations team.
+  - Contracts emphasize standardized PSP-agnostic response: `{status, providerCode, settlementRef, fees}`.
+- **Transaction Service**
+  - `POST /internal/v1/events` – Kafka consumer fallback for manual ingestion.
+  - `GET /api/v1/transactions?playerId=&type=&dateRange=` – filtered audit trail.
+  - `GET /api/v1/reports/reconciliation?date=` – aggregated totals vs PSP settlement.
+  - `POST /api/v1/exports/compliance` – schedules export and returns download link when ready.
+
+All inter-service APIs enforce OAuth2 client credentials, include correlation ids in headers, and publish OpenAPI/AsyncAPI definitions for governance. Events follow the schema `{eventId, eventType, version, occurredAt, walletId, playerId, amount, currency, balanceAfter, metadata}`.
+
 **Tool Evaluation Focus:**
 - Diagram generation quality
 - Architecture recommendations

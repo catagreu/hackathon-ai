@@ -1,0 +1,23 @@
+@startuml
+!pragma teoz true
+participant PlayerApp
+participant APIGateway
+participant WalletService
+participant PaymentInterface
+participant PSP
+participant Kafka
+participant TransactionService
+
+PlayerApp -> APIGateway : POST /wallets/{id}/deposit
+APIGateway -> WalletService : Authenticated deposit request
+WalletService -> PaymentInterface : Initiate PSP charge (idempotency key)
+PaymentInterface -> PSP : Capture funds
+PSP --> PaymentInterface : success + settlement ref
+PaymentInterface --> WalletService : PSP receipt
+WalletService -> WalletService : Update balance (ACID txn)
+WalletService -> Kafka : Publish WalletCredited event
+Kafka --> TransactionService : WalletCredited
+TransactionService -> TransactionService : Persist immutable log
+WalletService --> APIGateway : Deposit response
+APIGateway --> PlayerApp : 202 Accepted (balance projection)
+@enduml

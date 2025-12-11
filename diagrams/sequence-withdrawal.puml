@@ -1,0 +1,25 @@
+@startuml
+!pragma teoz true
+participant PlayerApp
+participant APIGateway
+participant WalletService
+participant PaymentInterface
+participant PSP
+participant Kafka
+participant TransactionService
+
+PlayerApp -> APIGateway : POST /wallets/{id}/withdraw
+APIGateway -> WalletService : Withdrawal intent
+WalletService -> WalletService : Validate balance & limits
+WalletService -> Kafka : Publish WalletDebitedPending
+Kafka --> TransactionService : WalletDebitedPending
+WalletService -> PaymentInterface : Request payout
+PaymentInterface -> PSP : Initiate payout
+PSP --> PaymentInterface : Payout confirmation/failure
+PaymentInterface --> WalletService : PSP status
+WalletService -> WalletService : Commit or rollback ledger entry
+WalletService -> Kafka : WalletDebitedCommitted / WalletDebitRejected
+Kafka --> TransactionService : Final audit event
+WalletService --> APIGateway : Response with final status
+APIGateway --> PlayerApp : Final outcome + updated balance
+@enduml
