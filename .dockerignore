@@ -1,0 +1,16 @@
+target/
+.mvn/
+.idea/
+*.iml
+*.log
+.DS_Store
+.git/
+.gitignore
+README.md
+SETUP.md
+MAVEN_SETUP.md
+QUICKSTART.md
+test-output.log
+*.md
+!Dockerfile
+
