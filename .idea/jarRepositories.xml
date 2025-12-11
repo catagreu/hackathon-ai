@@ -7,6 +7,11 @@
       <option name="url" value="https://repo.latitc.corp-apps.com/content/groups/public" />
     </remote-repository>
     <remote-repository>
+      <option name="id" value="central" />
+      <option name="name" value="central" />
+      <option name="url" value="https://repo.latitc.corp-apps.com/repository/public-maven" />
+    </remote-repository>
+    <remote-repository>
       <option name="id" value="internal.releases" />
       <option name="name" value="Internal Releases" />
       <option name="url" value="https://repo.latitc.corp-apps.com/content/groups/public" />
@@ -20,6 +25,11 @@
       <option name="id" value="jboss.community" />
       <option name="name" value="JBoss Community repository" />
       <option name="url" value="https://repository.jboss.org/nexus/content/repositories/public/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="internal.releases" />
+      <option name="name" value="Internal Releases" />
+      <option name="url" value="https://repo.latitc.corp-apps.com/repository/public-maven" />
     </remote-repository>
   </component>
 </project>
