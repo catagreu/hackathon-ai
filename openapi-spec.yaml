@@ -1,0 +1,759 @@
+openapi: 3.0.3
+info:
+  title: Wallet Management API
+  description: |
+    REST API for managing player wallets, transactions, and financial operations.
+    Modernized from legacy monolithic wallet management system.
+  version: 1.0.0
+  contact:
+    name: Wallet API Support
+    email: api-support@wallet-system.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.wallet-system.com/v1
+    description: Production server
+  - url: https://staging-api.wallet-system.com/v1
+    description: Staging server
+
+security:
+  - BearerAuth: []
+
+paths:
+  /api/wallets/{playerId}/deposit:
+    post:
+      summary: Deposit funds into player wallet
+      description: Add funds to a player's wallet for the specified currency
+      tags:
+        - Wallet Operations
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          description: Unique player identifier
+          schema:
+            type: integer
+            example: 1001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepositRequest'
+      responses:
+        '200':
+          description: Deposit successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/wallets/{playerId}/withdraw:
+    post:
+      summary: Request withdrawal from player wallet
+      description: Create a pending withdrawal request for the specified amount
+      tags:
+        - Wallet Operations
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          description: Unique player identifier
+          schema:
+            type: integer
+            example: 1001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WithdrawRequest'
+      responses:
+        '200':
+          description: Withdrawal request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithdrawalResponse'
+        '400':
+          description: Invalid request or insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/wallets/{playerId}/bet:
+    post:
+      summary: Place a bet using wallet funds
+      description: Deduct bet amount from player wallet (bonus balance first, then real balance)
+      tags:
+        - Gaming Operations
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          description: Unique player identifier
+          schema:
+            type: integer
+            example: 1001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BetRequest'
+      responses:
+        '200':
+          description: Bet placed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '400':
+          description: Invalid bet or insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/wallets/{playerId}/win:
+    post:
+      summary: Credit winnings to player wallet
+      description: Add winning amount to player's real balance
+      tags:
+        - Gaming Operations
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          description: Unique player identifier
+          schema:
+            type: integer
+            example: 1001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WinRequest'
+      responses:
+        '200':
+          description: Winnings credited successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '400':
+          description: Invalid win amount or wallet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/wallets/{playerId}/bonus:
+    post:
+      summary: Add bonus funds to player wallet
+      description: Credit bonus amount to player's bonus balance
+      tags:
+        - Wallet Operations
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          description: Unique player identifier
+          schema:
+            type: integer
+            example: 1001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BonusRequest'
+      responses:
+        '200':
+          description: Bonus credited successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '400':
+          description: Invalid bonus amount or wallet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/wallets/{playerId}/balance/{currency}:
+    get:
+      summary: Get player wallet balance
+      description: Retrieve current balance information for specified currency
+      tags:
+        - Wallet Operations
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          description: Unique player identifier
+          schema:
+            type: integer
+            example: 1001
+        - name: currency
+          in: path
+          required: true
+          description: Currency code
+          schema:
+            type: string
+            enum: [USD, EUR, GBP, CAD]
+            example: USD
+      responses:
+        '200':
+          description: Balance information retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceResponse'
+        '404':
+          description: Wallet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/wallets/{playerId}/transactions:
+    get:
+      summary: Get player transaction history
+      description: Retrieve transaction history for specified player and currency
+      tags:
+        - Wallet Operations
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          description: Unique player identifier
+          schema:
+            type: integer
+            example: 1001
+        - name: currency
+          in: query
+          required: true
+          description: Currency code
+          schema:
+            type: string
+            enum: [USD, EUR, GBP, CAD]
+            example: USD
+        - name: days
+          in: query
+          required: false
+          description: Number of days to retrieve (default 30, max 100 transactions)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+            example: 7
+      responses:
+        '200':
+          description: Transaction history retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionHistoryResponse'
+        '404':
+          description: Wallet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/wallets/{playerId}/convert:
+    post:
+      summary: Convert currency between wallets
+      description: Exchange funds from one currency to another using current rates
+      tags:
+        - Wallet Operations
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          description: Unique player identifier
+          schema:
+            type: integer
+            example: 1001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConvertRequest'
+      responses:
+        '200':
+          description: Currency conversion successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConvertResponse'
+        '400':
+          description: Invalid conversion or insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/withdrawals/{withdrawalId}/approve:
+    put:
+      summary: Approve pending withdrawal
+      description: Approve a pending withdrawal request
+      tags:
+        - Administrative Operations
+      parameters:
+        - name: withdrawalId
+          in: path
+          required: true
+          description: Unique withdrawal identifier
+          schema:
+            type: integer
+            example: 12345
+      responses:
+        '200':
+          description: Withdrawal approved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithdrawalApprovalResponse'
+        '404':
+          description: Withdrawal not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/reports/daily:
+    get:
+      summary: Generate daily financial report
+      description: Generate aggregated financial data report
+      tags:
+        - Administrative Operations
+      parameters:
+        - name: startDate
+          in: query
+          required: false
+          description: Report start date (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+            example: "2024-01-01"
+        - name: endDate
+          in: query
+          required: false
+          description: Report end date (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+            example: "2024-01-31"
+        - name: format
+          in: query
+          required: false
+          description: Output format
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+      responses:
+        '200':
+          description: Report generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyReportResponse'
+            text/csv:
+              schema:
+                type: string
+                example: "Date,Currency,Deposits,Withdrawals,Bets,Wins,Unique Players\n2024-01-01,USD,5000.00,2000.00,8000.00,7500.00,150"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    DepositRequest:
+      type: object
+      required:
+        - amount
+        - currency
+      properties:
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          maximum: 10000
+          example: 500.00
+          description: Deposit amount (max 10,000)
+        currency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          example: USD
+          description: Currency code
+
+    WithdrawRequest:
+      type: object
+      required:
+        - amount
+        - currency
+      properties:
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          maximum: 5000
+          example: 250.00
+          description: Withdrawal amount (max 5,000)
+        currency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          example: USD
+          description: Currency code
+
+    BetRequest:
+      type: object
+      required:
+        - amount
+        - currency
+        - gameId
+      properties:
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          example: 50.00
+          description: Bet amount
+        currency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          example: USD
+          description: Currency code
+        gameId:
+          type: string
+          example: "SLOT_001"
+          description: Game identifier
+
+    WinRequest:
+      type: object
+      required:
+        - amount
+        - currency
+        - gameId
+      properties:
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          example: 150.00
+          description: Win amount
+        currency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          example: USD
+          description: Currency code
+        gameId:
+          type: string
+          example: "SLOT_001"
+          description: Game identifier
+
+    BonusRequest:
+      type: object
+      required:
+        - amount
+        - currency
+        - bonusCode
+      properties:
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          example: 100.00
+          description: Bonus amount
+        currency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          example: USD
+          description: Currency code
+        bonusCode:
+          type: string
+          example: "WELCOME100"
+          description: Bonus code identifier
+
+    ConvertRequest:
+      type: object
+      required:
+        - fromCurrency
+        - toCurrency
+        - amount
+      properties:
+        fromCurrency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          example: USD
+          description: Source currency code
+        toCurrency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          example: EUR
+          description: Destination currency code
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          example: 100.00
+          description: Amount to convert
+
+    TransactionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Deposit successful"
+        transaction:
+          $ref: '#/components/schemas/Transaction'
+        balance:
+          $ref: '#/components/schemas/Balance'
+
+    WithdrawalResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Withdrawal request created"
+        withdrawalId:
+          type: integer
+          example: 12345
+        status:
+          type: string
+          example: "PENDING"
+        balance:
+          $ref: '#/components/schemas/Balance'
+
+    BalanceResponse:
+      type: object
+      properties:
+        playerId:
+          type: integer
+          example: 1001
+        currency:
+          type: string
+          example: USD
+        balance:
+          $ref: '#/components/schemas/Balance'
+
+    TransactionHistoryResponse:
+      type: object
+      properties:
+        playerId:
+          type: integer
+          example: 1001
+        currency:
+          type: string
+          example: USD
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+        totalCount:
+          type: integer
+          example: 25
+
+    ConvertResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Currency conversion successful"
+        conversion:
+          type: object
+          properties:
+            fromAmount:
+              type: number
+              example: 100.00
+            fromCurrency:
+              type: string
+              example: USD
+            toAmount:
+              type: number
+              example: 85.00
+            toCurrency:
+              type: string
+              example: EUR
+            exchangeRate:
+              type: number
+              example: 0.85
+
+    WithdrawalApprovalResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Withdrawal approved"
+        withdrawalId:
+          type: integer
+          example: 12345
+        status:
+          type: string
+          example: "APPROVED"
+        processedAt:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00Z"
+
+    DailyReportResponse:
+      type: object
+      properties:
+        reportPeriod:
+          type: object
+          properties:
+            startDate:
+              type: string
+              format: date
+              example: "2024-01-01"
+            endDate:
+              type: string
+              format: date
+              example: "2024-01-31"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyReportEntry'
+
+    Balance:
+      type: object
+      properties:
+        realBalance:
+          type: number
+          format: decimal
+          example: 450.00
+          description: Real money balance
+        bonusBalance:
+          type: number
+          format: decimal
+          example: 100.00
+          description: Bonus funds balance
+        totalBalance:
+          type: number
+          format: decimal
+          example: 550.00
+          description: Combined available balance
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 98765
+        type:
+          type: string
+          enum: [DEPOSIT, WITHDRAWAL, BET, WIN, BONUS, CONVERSION]
+          example: DEPOSIT
+        amount:
+          type: number
+          format: decimal
+          example: 500.00
+        currency:
+          type: string
+          example: USD
+        balanceBefore:
+          type: number
+          format: decimal
+          example: 0.00
+        balanceAfter:
+          type: number
+          format: decimal
+          example: 500.00
+        timestamp:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00Z"
+        description:
+          type: string
+          example: "Deposit via payment gateway"
+
+    DailyReportEntry:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2024-01-15"
+        currency:
+          type: string
+          example: USD
+        totalDeposits:
+          type: number
+          format: decimal
+          example: 15000.00
+        totalWithdrawals:
+          type: number
+          format: decimal
+          example: 8000.00
+        totalBets:
+          type: number
+          format: decimal
+          example: 25000.00
+        totalWins:
+          type: number
+          format: decimal
+          example: 22000.00
+        uniquePlayers:
+          type: integer
+          example: 150
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: "INSUFFICIENT_FUNDS"
+            message:
+              type: string
+              example: "Not enough balance for operation"
+            details:
+              type: string
+              example: "Current balance: 100.00, Required: 250.00"
+
+tags:
+  - name: Wallet Operations
+    description: Core wallet management operations
+  - name: Gaming Operations
+    description: Gaming-related financial operations
+  - name: Administrative Operations
+    description: Administrative and reporting functions

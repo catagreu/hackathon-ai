@@ -4,6 +4,12 @@
 
 This document specifies the requirements for modernizing a legacy wallet management system into a robust, secure, and scalable API. The system manages player wallets across multiple currencies, handles various transaction types (deposits, withdrawals, bets, wins, bonuses), and provides comprehensive transaction tracking and reporting capabilities.
 
+The deliverables include:
+- Data dictionary with entity definitions
+- OpenAPI 3.0 specification with all endpoints  
+- Business rules documentation
+- Non-functional requirements (performance, security)
+
 ## Glossary
 
 - **Wallet_System**: The modernized wallet management API system
@@ -16,6 +22,9 @@ This document specifies the requirements for modernizing a legacy wallet managem
 - **Currency_Conversion**: The process of exchanging funds between different currencies
 - **Transaction_History**: A chronological record of all wallet operations
 - **Daily_Report**: Aggregated financial data for reporting and analytics
+- **Exchange_Rate**: The conversion rate between different currencies
+- **API_Endpoint**: A REST API interface for system operations
+- **Data_Dictionary**: Comprehensive documentation of all system entities and relationships
 
 ## Requirements
 
@@ -162,3 +171,30 @@ This document specifies the requirements for modernizing a legacy wallet managem
 3. WHEN currency codes are processed, THE Wallet_System SHALL validate against supported currency list
 4. WHEN database operations are performed, THE Wallet_System SHALL ensure referential integrity across all related tables
 5. WHEN validation fails, THE Wallet_System SHALL return specific error messages without exposing internal system details
+
+### Requirement 13
+
+**User Story:** As a developer, I want comprehensive API documentation, so that I can integrate with the wallet system effectively.
+
+#### Acceptance Criteria
+
+1. WHEN API documentation is provided, THE Wallet_System SHALL include OpenAPI 3.0 specification with all endpoints
+2. WHEN API endpoints are documented, THE Wallet_System SHALL specify request/response schemas, status codes, and error formats
+3. WHEN data models are documented, THE Wallet_System SHALL provide complete entity definitions with field descriptions and constraints
+4. WHEN business rules are documented, THE Wallet_System SHALL specify all validation rules, limits, and operational constraints
+5. WHEN integration examples are provided, THE Wallet_System SHALL include sample requests and responses for all operations
+
+### Requirement 14
+
+**User Story:** As a system architect, I want defined non-functional requirements, so that the system meets performance and security standards.
+
+#### Acceptance Criteria
+
+1. WHEN the system processes transactions, THE Wallet_System SHALL complete operations within 500 milliseconds for 95% of requests
+2. WHEN the system handles concurrent users, THE Wallet_System SHALL support at least 1000 concurrent transactions without degradation
+3. WHEN sensitive data is processed, THE Wallet_System SHALL encrypt all financial data at rest and in transit
+4. WHEN API access is requested, THE Wallet_System SHALL require authentication and authorization for all operations
+5. WHEN system availability is measured, THE Wallet_System SHALL maintain 99.9% uptime during business hours
+
+
+
